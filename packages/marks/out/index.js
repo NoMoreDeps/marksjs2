@@ -44,5 +44,8 @@ const hello = 'hello';
 }}
 
 `;
-const d = new LineParser_1.DocumentParser();
-d.registerBlocks([LineParser_1.TextBlock]);
+const parser = new LineParser_1.DocumentParser();
+parser.registerBlocks([LineParser_1.RootBlock]);
+parser.setText(doc);
+const root = parser.parse();
+console.log(root);

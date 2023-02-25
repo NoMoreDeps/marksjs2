@@ -1,4 +1,4 @@
-import { DocumentParser, TextBlock } from "./LineParser";
+import { DocumentParser, RootBlock } from "./LineParser";
 
 const doc = `
 hello la terre
@@ -44,5 +44,13 @@ const hello = 'hello';
 
 `;
 
-const d = new DocumentParser();
-d.registerBlocks([TextBlock]);
+
+const parser = new DocumentParser();
+parser.registerBlocks([RootBlock]);
+
+parser.setText(doc);  
+const root = parser.parse();
+
+console.log(root);
+
+// yarn workspace marks build
