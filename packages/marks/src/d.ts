@@ -1,4 +1,5 @@
-import { DocumentParser, TextBlock } from "./LineParser";
+import { DocumentParser } from "./LineParser";
+import { TextBlock } from "./TextBlock";
 
 const d = new DocumentParser();
 d.registerBlocks([TextBlock]);

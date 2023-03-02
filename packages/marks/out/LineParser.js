@@ -1,46 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DocumentParser = exports.RootBlock = exports.TextBlock = void 0;
-class Block {
-    constructor() {
-        this._nestedBlocks = [];
-    }
-    static get id() { return this.name; }
-    static canProcess(line) { return false; }
-    static isMultiLine() { return false; }
-    isEndingBlock(line) { return [false, false]; }
-    static getBlocksToRegister() { return [TextBlock]; }
-    addNestedBlock(block) {
-        this._nestedBlocks.push(block);
-    }
-    get nestedBlocks() { return this._nestedBlocks; }
-    static createBlock() { return undefined; }
-}
-Block.priotity = 0;
-class TextBlock extends Block {
-    constructor() {
-        super(...arguments);
-        this._text = '';
-    }
-    parse(line) {
-        this.text = line;
-        return true;
-    }
-    get text() { return this._text; }
-    set text(value) { this._text = value; }
-    isEndingBlock(line) { return [true, true]; }
-}
-exports.TextBlock = TextBlock;
-TextBlock.priotity = 0;
-TextBlock.createBlock = () => new TextBlock();
-TextBlock.canProcess = (line) => true;
-TextBlock.isMultiLine = () => false;
-class RootBlock extends Block {
-    parse(line) {
-        return true;
-    }
-}
-exports.RootBlock = RootBlock;
+exports.DocumentParser = void 0;
+const RootBlock_1 = require("./RootBlock");
 class DocumentParser {
     constructor() {
         this.blocks = [];
@@ -52,7 +13,7 @@ class DocumentParser {
     }
     registerBlocks(blocks) {
         this.blocks = this.blocks.concat(blocks);
-        this.blocks.sort((a, b) => a.priotity - b.priotity);
+        this.blocks.sort((b, a) => a.priotity - b.priotity);
         this.blocks = this.blocks.filter((b, i, a) => a.findIndex(b2 => b2.id === b.id) === i);
     }
     unregisterBlocks(blocks) {
@@ -60,6 +21,9 @@ class DocumentParser {
     }
     setText(text) {
         this._text = text;
+    }
+    getCurrentType() {
+        return this._parsingContextStack[this._parsingContextStack.length - 1].type;
     }
     getCompatibleBlocks() {
         return this.blocks.filter(b => b.canProcess(this._textLines[this._cursorIndex]));
@@ -70,43 +34,55 @@ class DocumentParser {
     getContextBlock() {
         return this._parsingContextStack[this._parsingContextStack.length - 1].block;
     }
-    getOriginalContextBlocks() {
-        this._parsingContextStack[this._parsingContextStack.length - 1].contextBlocks = this._parsingContextStack[this._parsingContextStack.length - 1]
-            .blockType.getBlocksToRegister();
+    resetOriginalContextBlocks() {
+        const originalContext = this._parsingContextStack[this._parsingContextStack.length - 1];
+        if (originalContext.type === "RootBlock") {
+            this._parsingContextStack[this._parsingContextStack.length - 1].contextBlocks = this.blocks.map(b => b);
+        }
+        else {
+            this._parsingContextStack[this._parsingContextStack.length - 1].contextBlocks = this._parsingContextStack[this._parsingContextStack.length - 1]
+                .blockType.getBlocksToRegister().map(b => b);
+        }
     }
     parse() {
+        const startTimestamp = Date.now();
         this._textLines = this._text.split('\n');
         this._cursorIndex = 0;
         this._currentType = "RootBlock";
         this._parsingContextStack = [{
                 type: this._currentType,
-                blockType: RootBlock,
-                block: new RootBlock(),
+                blockType: RootBlock_1.RootBlock,
+                block: new RootBlock_1.RootBlock(),
                 startIndex: this._cursorIndex,
-                contextBlocks: this.blocks
+                contextBlocks: this.blocks.map(b => b)
             }];
         while (this._cursorIndex < this._textLines.length) {
             const _blocks = this.getCurrentContextBlocks();
             const [isEnding, consumeToken] = this.getContextBlock().isEndingBlock(this._textLines[this._cursorIndex]);
             if (isEnding) {
-                if (this._currentType === "ROOT") {
+                if (this.getCurrentType() === "RootBlock") {
                     throw new Error("Unexpected end of document");
                 }
                 const context = this.popContext();
                 this.getContextBlock().addNestedBlock(context.block);
                 consumeToken && this._cursorIndex++;
+                this.resetOriginalContextBlocks();
                 continue;
             }
             if (_blocks.length === 0) {
-                if (this._currentType === "ROOT") {
+                if (this.getCurrentType() === "RootBlock") {
                     throw new Error("document cannot find a valid parser for the current line");
                 }
                 const context = this.popContext();
-                this.getCurrentContextBlocks().pop();
+                this.getCurrentContextBlocks().shift();
                 this._cursorIndex = context.startIndex;
                 continue;
             }
             const _block = _blocks[0];
+            if (!_block.canProcess(this._textLines[this._cursorIndex])) {
+                this.getCurrentContextBlocks().shift();
+                continue;
+            }
             if (_block.isMultiLine()) {
                 this.pushContext(_block.id);
                 continue;
@@ -117,15 +93,23 @@ class DocumentParser {
                 case true:
                     this._cursorIndex++;
                     this._parsingContextStack[this._parsingContextStack.length - 1].block.addNestedBlock(_blockInstance);
+                    this.resetOriginalContextBlocks();
                     break;
                 case false:
                     this._cursorIndex = this.popContext().startIndex;
                     break;
             }
         }
+        while (this._parsingContextStack.length > 1) {
+            const context = this.popContext();
+            this.getContextBlock().addNestedBlock(context.block);
+        }
+        console.log("Parsing took", Date.now() - startTimestamp, "ms");
+        return this._parsingContextStack[this._parsingContextStack.length - 1].block;
     }
     pushContext(blockType) {
         const _blockType = this.blocks.find(b => b.id === blockType);
+        this._currentType = blockType;
         this._parsingContextStack.push({
             type: this._currentType,
             blockType: _blockType,
@@ -133,17 +117,14 @@ class DocumentParser {
             startIndex: this._cursorIndex,
             contextBlocks: _blockType.getBlocksToRegister()
         });
-        this._currentType = blockType;
     }
     popContext() {
-        let context = this._parsingContextStack.pop();
-        if (this._parsingContextStack.length === 0) {
-            this._currentType = "ROOT";
+        if (this._parsingContextStack.length > 1) {
+            return this._parsingContextStack.pop();
         }
         else {
-            this._currentType = this._parsingContextStack[this._parsingContextStack.length - 1].type;
+            return this._parsingContextStack[0];
         }
-        return context;
     }
 }
 exports.DocumentParser = DocumentParser;

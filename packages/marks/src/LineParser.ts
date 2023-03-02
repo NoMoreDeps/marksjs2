@@ -1,46 +1,5 @@
-abstract class Block {
-  protected  _nestedBlocks: Block[] = []; // Array of nested blocks
-  static priotity: number = 0;
-  static get id() { return this.name; }
-  static canProcess(line: string) { return false; }
-  static isMultiLine() { return false; }
-  isEndingBlock(line: string) { return [false, false]; }
-  
-  abstract parse(line: string): boolean | null;
-
-  static getBlocksToRegister(): typeof Block[] { return [TextBlock]; } // used to register blocks when isMultiLine is true
-  addNestedBlock(block: Block) { 
-    this._nestedBlocks.push(block);
-  }
-  get nestedBlocks() { return this._nestedBlocks; }
-  
-  static createBlock() { return undefined as unknown as Block; }
-}
-
-export class TextBlock extends Block {
-
-  parse(line: string): boolean {
-    this.text = line;
-    return true;
-  }
-  private _text: string = '';
-
-  get text() { return this._text; }
-  set text(value: string) { this._text = value; }
-
-  isEndingBlock(line: string) { return [true, true]; }
-}
-
-TextBlock.priotity    = 0;
-TextBlock.createBlock = () => new TextBlock();
-TextBlock.canProcess  = (line: string) => true;
-TextBlock.isMultiLine = () => false;
-
-export class RootBlock extends Block {
-  parse(line: string): boolean {
-    return true;
-  }
-}
+import { Block } from "./Block";
+import { RootBlock } from "./RootBlock";
 
 /**
  * Parsing context stack
@@ -73,17 +32,21 @@ export class DocumentParser {
    */
   registerBlocks(blocks: (typeof Block)[]) {
     this.blocks = this.blocks.concat(blocks);
-    this.blocks.sort((a, b) => a.priotity - b.priotity);
+    this.blocks.sort((b, a) => a.priotity - b.priotity); 
     // remove duplicates relying on the static field name id
     this.blocks = this.blocks.filter((b, i, a) => a.findIndex(b2 => b2.id === b.id) === i);
   }
 
-  unregisterBlocks(blocks: (typeof Block)[]) {
+  unregisterBlocks(blocks: (typeof Block)[]) {  
     this.blocks = this.blocks.filter(b => !blocks.includes(b));
   }
 
   setText(text: string) {
     this._text = text;
+  }
+
+  getCurrentType() {
+    return this._parsingContextStack[this._parsingContextStack.length - 1].type;
   }
 
   getCompatibleBlocks() { 
@@ -98,13 +61,20 @@ export class DocumentParser {
     return this._parsingContextStack[this._parsingContextStack.length - 1].block;
   }
 
-  getOriginalContextBlocks() {
+  resetOriginalContextBlocks() {
+    const originalContext = this._parsingContextStack[this._parsingContextStack.length - 1];
+
+    if (originalContext.type === "RootBlock") {
+      this._parsingContextStack[this._parsingContextStack.length - 1].contextBlocks = this.blocks.map(b => b);
+    } else {
     this._parsingContextStack[this._parsingContextStack.length - 1].contextBlocks = this._parsingContextStack[this._parsingContextStack.length - 1]
-      .blockType.getBlocksToRegister();
+      .blockType.getBlocksToRegister().map(b => b);
+    }
   }
 
   parse() {
-    this._textLines = this._text.split('\n');
+    const startTimestamp = Date.now();
+    this._textLines   = this._text.split('\n');
     this._cursorIndex = 0;
     this._currentType = "RootBlock";
 
@@ -115,7 +85,7 @@ export class DocumentParser {
       blockType     : RootBlock,
       block         : new RootBlock(),
       startIndex    : this._cursorIndex,
-      contextBlocks : this.blocks
+      contextBlocks : this.blocks.map(b => b)
     }];
 
     while (this._cursorIndex < this._textLines.length) {
@@ -127,34 +97,41 @@ export class DocumentParser {
       const [isEnding, consumeToken] = this.getContextBlock().isEndingBlock(this._textLines[this._cursorIndex]);
 
       if (isEnding) {
-        if (this._currentType === "ROOT") { // Root should never end except at the end of the document
+        if (this.getCurrentType() === "RootBlock") { // Root should never end except at the end of the document
           throw new Error("Unexpected end of document");
         }
         // if the block is ending, we go back to the previous context
         const context = this.popContext();
         this.getContextBlock().addNestedBlock(context.block);
         consumeToken && this._cursorIndex++; // We consume the token if needed
+        this.resetOriginalContextBlocks();
         continue;
       }
 
       // If there is no block to parse, we go to the next line
       if (_blocks.length === 0) {
-        if (this._currentType === "ROOT") { // Root should never end except at the end of the document
+        if (this.getCurrentType() === "RootBlock") { // Root should never end except at the end of the document
           throw new Error("document cannot find a valid parser for the current line");
         }
 
         // we revert to the previous block
+        //console.log("Error no block, reverting", this._currentType);
         const context = this.popContext();
-        this.getCurrentContextBlocks().pop(); // we remove the current block from the context as it is not a valid parser
+        this.getCurrentContextBlocks().shift(); // we remove the current block from the context as it is not a valid parser
         this._cursorIndex = context.startIndex; // we go back to the start of the block
         continue;
       }
 
       const _block = _blocks[0];
+      if (!_block.canProcess(this._textLines[this._cursorIndex])) {
+        this.getCurrentContextBlocks().shift();
+        continue;
+      }
       if (_block.isMultiLine()) {
         this.pushContext(_block.id);
         continue;
       }
+      //console.log(_block.id);
       const _blockInstance = _block.createBlock();
       const parsingResult = _blockInstance.parse(this._textLines[this._cursorIndex]);
 
@@ -162,36 +139,43 @@ export class DocumentParser {
         case true:
           this._cursorIndex++;
           this._parsingContextStack[this._parsingContextStack.length - 1].block.addNestedBlock(_blockInstance);
+          this.resetOriginalContextBlocks();
           break;
         case false:
           this._cursorIndex = this.popContext().startIndex;
+          //console.log("popping", _block.id);
           break;
       }
-
-
     }
+
+    while (this._parsingContextStack.length > 1) {
+      const context = this.popContext();
+      this.getContextBlock().addNestedBlock(context.block);
+    }
+
+    console.log("Parsing took", Date.now() - startTimestamp, "ms");
+    return this._parsingContextStack[this._parsingContextStack.length - 1].block;
   }
 
   pushContext(blockType: string) {
     const _blockType = this.blocks.find(b => b.id === blockType)!;
+    this._currentType = blockType;
     this._parsingContextStack.push({
       type          : this._currentType,
-      blockType     : _blockType,
+      blockType     : _blockType, 
       block         : _blockType.createBlock(),
       startIndex    : this._cursorIndex,
       contextBlocks : _blockType.getBlocksToRegister()
     });
-    this._currentType = blockType;
+    //console.log("pushing", _blockType.id);
   }
 
   popContext() {
-    let context = this._parsingContextStack.pop()!;
-    if (this._parsingContextStack.length === 0) {
-      this._currentType = "ROOT";
+    if (this._parsingContextStack.length > 1) {
+      return this._parsingContextStack.pop()!;
     } else {
-      this._currentType = this._parsingContextStack[this._parsingContextStack.length - 1].type;
+      return this._parsingContextStack[0];
     }
-    return context;
   }
 
 

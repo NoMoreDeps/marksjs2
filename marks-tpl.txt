@@ -1,0 +1,17 @@
+
+// variables
+$string;
+&number;
+#date;
+
+
+@object: {
+  $lldkkd: ""
+}
+
+if($kkssk = $lkjd) {
+
+}
+
+take sss and send to "sss"
+get from "" and store to lll

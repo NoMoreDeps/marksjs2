@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const LineParser_1 = require("./LineParser");
+const TextBlock_1 = require("./TextBlock");
 const d = new LineParser_1.DocumentParser();
-d.registerBlocks([LineParser_1.TextBlock]);
+d.registerBlocks([TextBlock_1.TextBlock]);
 function safeExec(code) {
     return new Promise((resolve, reject) => {
         const workerCode = `

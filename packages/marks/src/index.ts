@@ -1,56 +1,82 @@
-import { DocumentParser, RootBlock } from "./LineParser";
+import { DocumentParser } from "./LineParser";
+import { TextBlock } from "./TextBlock";
+import { RootBlock } from "./RootBlock";
+import { MarksBlock } from "./MarksBlock";
+import { QuoteBlock } from "./QuoteBlock";
+import { OrderedListBlock } from "./OrderedListBlock";
+import { TableBlock } from "./TableBlock";
+import { UnorderedListBlock } from "./UnorderedListBlock";
+import { HtmlBlock } from "./HtmlBlock";
 
 const doc = `
-hello la terre
+[marks]{{ ::- alias:558744; class:ssj; test=oojkkj; ::- class=ssj; test=oojkkj;
+
+}}
+ 
+hello la terre  
 helle *italic* la terre
-
+ 
 > hello
-> hello
+> hello  
 
-* hello
-* hello
-
-1. hello
-2. hello
-
-# hello
-## hello
-
-[hello](http://hello.com)
-
+[hello](http://hello.com) 
 ![hello](http://hello.com)
-
+  
 | hello | hello |
 | ----- | ----- |
 | hello | hello |
 
-\`\`\`js
+ 
+* 22
+  * 33
+* 44
+#. 55
+#. 66
+#. 7
 
-const hello = 'hello';
+<span style="color:red">  
+  This is an Html piece of code  
+</span>
 
-\`\`\`
+[html]{{
+<span style="color:red">  
+  This is an Html piece of code  
+</span>
+}}
 
-\`\`\`js
-
-const hello = 'hello';
-
-\`\`\`
+1. sfds	
 
 
 [marks]{{
   ::- alias:558744; class:ssj; test=oojkkj;
-  ::- class=ssj; test=oojkkj;
-}}
+  ::- class=ssj; test=oojkkj; 
+}}  
+8 
+56
+
+,,
+8--
+
+
+| hello | hello |
+| ----- | ----- |
+| hello | @@256@@ |
 
 `;
 
-
 const parser = new DocumentParser();
-parser.registerBlocks([RootBlock]);
+parser.registerBlocks([
+  RootBlock, 
+  TextBlock, 
+  MarksBlock, 
+  QuoteBlock, 
+  OrderedListBlock, 
+  UnorderedListBlock, 
+  TableBlock ,
+  HtmlBlock
+]);
 
-parser.setText(doc);  
-const root = parser.parse();
+parser.setText(doc); 
+let root = parser.parse();
 
-console.log(root);
-
-// yarn workspace marks build
+console.dir(root, { depth: 5 });
